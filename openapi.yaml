@@ -1,0 +1,207 @@
+openapi: 3.0.3
+info:
+  title: Ad Assets API
+  description: >
+    Generate AI-powered ad assets (images, videos, and audio) for marketing campaigns.
+    Submit a generation request and poll for the result. Supports three asset types:
+    product images, short cinematic video clips, and conversational podcast-style audio ads.
+  version: 0.1.0
+
+servers:
+  - url: https://your-ngrok-url.ngrok-free.app
+    description: Local development server via ngrok
+
+security:
+  - ApiKeyAuth: []
+
+paths:
+  /health:
+    get:
+      operationId: healthCheck
+      summary: Check API health
+      description: Returns the service health status. Use this to verify the API is running and available.
+      security: []
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /generate:
+    post:
+      operationId: generateAdAsset
+      summary: Generate an ad asset
+      description: >
+        Submit a request to generate an ad asset. Provide the product name, description,
+        target audience, desired tone, and asset type (image, video, or audio).
+        The API uses AI to create an optimized creative direction and then generates
+        the asset. Returns a job ID to track progress. Image generation takes about
+        15 seconds, audio about 30 seconds, and video 1-3 minutes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateRequest"
+      responses:
+        "200":
+          description: Job created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobResponse"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /jobs/{job_id}:
+    get:
+      operationId: checkAssetStatus
+      summary: Check asset generation status
+      description: >
+        Check the status of an asset generation job by its job ID. Returns the current
+        status (queued, processing, completed, or failed), an estimated progress percentage,
+        and the download URL when the asset is ready. Use this after calling generateAdAsset
+        to monitor progress and retrieve the completed asset.
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          description: The unique job identifier returned by the generateAdAsset operation
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Job status retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobResponse"
+        "404":
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key for authenticating requests from Salesforce AgentForce
+
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          description: Service health status
+          example: healthy
+        version:
+          type: string
+          description: API version
+          example: 0.1.0
+
+    GenerateRequest:
+      type: object
+      required:
+        - type
+        - product_name
+        - product_description
+      properties:
+        type:
+          type: string
+          enum: [image, video, audio]
+          description: >
+            Type of ad asset to generate. Use "image" for product photography and
+            marketing visuals, "video" for 8-second cinematic ad clips with audio,
+            or "audio" for 30-second conversational podcast-style ads.
+        product_name:
+          type: string
+          description: Name of the product or brand being advertised
+          example: AirStride Pro Running Shoes
+        product_description:
+          type: string
+          description: Brief description of the product, its key features and benefits
+          example: Lightweight running shoes with responsive cushioning and breathable mesh upper
+        target_audience:
+          type: string
+          description: Target audience for the ad (e.g. 'young professionals aged 25-35')
+          default: general consumers
+        tone:
+          type: string
+          enum: [professional, casual, energetic, luxury, humorous, inspirational]
+          description: Desired tone and mood for the ad asset
+          default: professional
+        aspect_ratio:
+          type: string
+          enum: ["16:9", "9:16", "1:1"]
+          description: Aspect ratio for image or video assets (landscape, portrait, or square)
+          default: "16:9"
+        additional_instructions:
+          type: string
+          description: Any additional creative direction or specific requirements
+          default: ""
+
+    JobResponse:
+      type: object
+      properties:
+        job_id:
+          type: string
+          description: Unique identifier for the generation job
+          example: a1b2c3d4e5f6
+        status:
+          type: string
+          enum: [queued, processing, completed, failed]
+          description: >
+            Current status of the job. "queued" means waiting to start,
+            "processing" means actively generating, "completed" means the asset
+            is ready at result_url, "failed" means an error occurred.
+        type:
+          type: string
+          enum: [image, video, audio]
+          description: Type of asset being generated
+        progress:
+          type: integer
+          description: Estimated progress percentage from 0 to 100
+          example: 65
+        result_url:
+          type: string
+          nullable: true
+          description: URL to download the generated asset. Available when status is "completed".
+          example: https://your-ngrok-url.ngrok-free.app/assets/a1b2c3d4e5f6.mp4
+        error_message:
+          type: string
+          nullable: true
+          description: Error details if the job failed
+        created_at:
+          type: string
+          description: ISO 8601 timestamp when the job was created
+          example: "2026-02-21T10:00:00Z"
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error message describing what went wrong
