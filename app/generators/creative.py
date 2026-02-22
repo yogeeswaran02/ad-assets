@@ -1,10 +1,13 @@
-"""LLM creative director — transforms product info into optimized generation prompts."""
+"""LLM creative director — transforms product info into optimized generation prompts.
+
+Supports both Gemini and Claude as the underlying LLM. Configured via CREATIVE_LLM
+env var ("gemini" or "claude"). Defaults to Gemini since it shares the same API key
+used for image/video generation.
+"""
 
 from __future__ import annotations
 
 import logging
-
-import anthropic
 
 from app.config import settings
 from app.models import AssetType, GenerateRequest
@@ -83,17 +86,72 @@ def _build_user_message(request: GenerateRequest) -> str:
     return "\n".join(parts)
 
 
-async def generate_creative_prompt(request: GenerateRequest) -> str:
-    """Use Claude as creative director to generate an optimized asset prompt."""
+async def _generate_with_gemini(system: str, user_message: str) -> str:
+    """Generate creative prompt using Google Gemini."""
+    from google import genai
+    from google.genai import types
+
+    client = genai.Client(api_key=settings.gemini_api_key)
+
+    response = await client.aio.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=user_message,
+        config=types.GenerateContentConfig(
+            system_instruction=system,
+            max_output_tokens=500,
+            temperature=0.9,
+        ),
+    )
+    return response.text.strip()
+
+
+async def _generate_with_claude(system: str, user_message: str) -> str:
+    """Generate creative prompt using Anthropic Claude."""
+    import anthropic
+
     client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
 
     message = await client.messages.create(
         model="claude-sonnet-4-20250514",
         max_tokens=500,
-        system=_get_system_prompt(request.type),
-        messages=[{"role": "user", "content": _build_user_message(request)}],
+        system=system,
+        messages=[{"role": "user", "content": user_message}],
     )
+    return message.content[0].text.strip()
 
-    prompt = message.content[0].text.strip()
-    logger.info("Creative prompt for %s [%s]: %s", request.type.value, request.product_name, prompt)
-    return prompt
+
+async def generate_creative_prompt(request: GenerateRequest) -> str:
+    """Use an LLM as creative director to generate an optimized asset prompt.
+
+    Provider is controlled by the CREATIVE_LLM setting ("gemini" or "claude").
+    Falls back to the other provider if the primary one fails.
+    """
+    system = _get_system_prompt(request.type)
+    user_message = _build_user_message(request)
+    primary = settings.creative_llm.lower()
+
+    providers = {
+        "gemini": _generate_with_gemini,
+        "claude": _generate_with_claude,
+    }
+
+    # Try primary provider, fall back to the other
+    fallback = "claude" if primary == "gemini" else "gemini"
+    for provider_name in [primary, fallback]:
+        fn = providers.get(provider_name)
+        if fn is None:
+            continue
+        try:
+            prompt = await fn(system, user_message)
+            logger.info(
+                "Creative prompt via %s for %s [%s]: %s",
+                provider_name,
+                request.type.value,
+                request.product_name,
+                prompt,
+            )
+            return prompt
+        except Exception:
+            logger.warning("Creative director failed with %s, trying fallback", provider_name, exc_info=True)
+
+    raise RuntimeError("All creative director LLM providers failed")

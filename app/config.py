@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     port: int = 8000
     base_url: str = "http://localhost:8000"
     assets_dir: str = "assets"
+    # LLM provider for creative director: "gemini" or "claude"
+    creative_llm: str = "gemini"
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
